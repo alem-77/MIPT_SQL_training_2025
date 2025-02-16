@@ -1,0 +1,62 @@
+-- создаем таблицу для загрузки csv файла с информацией с листа transaction
+-- первичный ключ по уникальному полю transaction_id
+-- остальные поля, через которые будет связь с другими таблицами, - not null
+create table transactions_draft(
+transaction_id int4 primary key
+,product_id int4 not null
+,customer_id int4 not null
+,transaction_date date
+,online_order boolean
+,order_status varchar(9)
+,brand varchar(20)
+,product_line varchar(15)
+,product_class varchar(10)
+,product_size varchar(6)
+,list_price numeric(8,2) not null
+,standard_cost numeric(8,2)
+);
+
+-- создаем таблицу для загрузки csv файла с информацией с листа customer
+-- первичный ключ по уникальному полю customer_id
+create table clients(
+customer_id int4 primary key
+,first_name varchar(25)
+,last_name varchar(25)
+,gender varchar(6)
+,DOB date
+,job_title text
+,job_industry_category varchar(20)
+,wealth_segment varchar(20)
+,deceased_indicator varchar(1)
+,owns_car varchar(3)
+,address text
+,postcode int4
+,state varchar(20)
+,country varchar(20)
+,property_valuation int4
+);
+
+-- выносим в отдельную таблицу справочник по товарам
+-- в ней нет уникального поля, создадим составной ключ на следующем этапе
+create table products as
+select distinct product_id, brand, product_line, product_class, product_size, list_price, standard_cost
+from transactions_draft;
+-- так как в таблице нет уникального поля, создаем составной ключ
+-- из полей product_id и list_price
+-- данная комбинация является уникальной
+alter table products
+add primary key (product_id, list_price);
+
+-- удаляем лишние колонки из таблицы transactions_draft
+-- а именно, то, что было перенесено в таблицу products,
+-- за исключением 2 полей, по которым будет организована связь 
+-- между таблицами: product_id и list_price
+alter table transactions_draft
+drop column brand
+,drop column product_line
+,drop column product_class
+,drop column product_size
+,drop column standard_cost;
+
+-- теперь таблица с транзакциями приняла нужный вид, переименовываем ее
+alter table transactions_draft rename to transactions
