@@ -1,0 +1,95 @@
+-- создаем таблицу для загрузки файла transaction.csv
+create table transaction(
+transaction_id int4
+,product_id int4
+,customer_id int4
+,transaction_date date
+,online_order boolean
+,order_status varchar(9)
+,brand varchar(20)
+,product_line varchar(15)
+,product_class varchar(10)
+,product_size varchar(6)
+,list_price numeric(8,2)
+,standard_cost numeric(8,2)
+);
+
+-- создаем таблицу для загрузки файла customer.csv
+create table customer(
+customer_id int4
+,first_name varchar(25)
+,last_name varchar(25)
+,gender varchar(6)
+,DOB date
+,job_title text
+,job_industry_category varchar(20)
+,wealth_segment varchar(20)
+,deceased_indicator varchar(1)
+,owns_car varchar(3)
+,address text
+,postcode int4
+,state varchar(20)
+,country varchar(20)
+,property_valuation int4
+);
+
+-- Вывести все уникальные бренды, у которых стандартная стоимость выше 1500 долларов
+select distinct brand 
+from transaction t 
+where t.standard_cost > 1500
+order by brand
+
+-- Вывести все подтвержденные транзакции за период '2017-04-01' по '2017-04-09' включительно
+select *
+from transaction t
+where t.order_status = 'Approved' and t.transaction_date between '2017-04-01' and '2017-04-09'
+
+-- Вывести все профессии у клиентов из сферы IT или Financial Services, которые начинаются с фразы 'Senior'
+select distinct job_title
+from customer c 
+where (c.job_industry_category = 'IT' or c.job_industry_category = 'Financial Services')
+	and c.job_title like 'Senior%'
+order by c.job_title 
+
+-- Вывести все бренды, которые закупают клиенты, работающие в сфере Financial Services
+select distinct t.brand
+from customer c 
+join transaction t on c.customer_id = t.customer_id 
+where c.job_industry_category = 'Financial Services' and t.brand <> ''
+order by t.brand
+
+-- Вывести 10 клиентов, которые оформили онлайн-заказ продукции из брендов 'Giant Bicycles', 'Norco Bicycles', 'Trek Bicycles'
+select distinct c.customer_id, c.first_name, c.last_name 
+from customer c
+join transaction t on c.customer_id = t.customer_id
+where t.online_order and
+(t.brand = 'Giant Bicycles' or t.brand = 'Norco Bicycles' or t.brand = 'Trek Bicycles')
+limit 10
+
+-- Вывести всех клиентов, у которых нет транзакций
+select distinct c.customer_id, c.first_name, c.last_name 
+from customer c
+left join transaction t on c.customer_id = t.customer_id
+where t.customer_id is null
+order by c.customer_id
+
+-- Вывести всех клиентов из IT, у которых транзакции с максимальной стандартной стоимостью
+with it_sales as (
+	select c.customer_id, c.first_name, c.last_name, t.standard_cost from customer c
+	join transaction t on c.customer_id = t.customer_id
+	where c.job_industry_category = 'IT'
+)
+select distinct customer_id, first_name, last_name
+from it_sales 
+where standard_cost = (select max(standard_cost) from it_sales)
+order by customer_id
+
+-- Вывести всех клиентов из сферы IT и Health, у которых есть подтвержденные транзакции за период '2017-07-07' по '2017-07-17'
+select distinct c.customer_id, c.first_name, c.last_name
+from customer c
+join transaction t on c.customer_id = t.customer_id
+where (c.job_industry_category = 'IT' or c.job_industry_category = 'Health') and
+	t.order_status = 'Approved' and (t.transaction_date between '2017-07-07' and '2017-07-17')
+order by c.customer_id
+
+
