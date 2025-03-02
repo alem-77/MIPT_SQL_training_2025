@@ -1,0 +1,157 @@
+-- ДЗ 3
+
+-- создаем таблицу для загрузки файла transaction.csv
+create table transaction(
+transaction_id int4
+,product_id int4
+,customer_id int4
+,transaction_date date
+,online_order boolean
+,order_status varchar(9)
+,brand varchar(20)
+,product_line varchar(15)
+,product_class varchar(10)
+,product_size varchar(6)
+,list_price numeric(8,2)
+,standard_cost numeric(8,2)
+);
+
+-- создаем таблицу для загрузки файла customer.csv
+create table customer(
+customer_id int4
+,first_name varchar(25)
+,last_name varchar(25)
+,gender varchar(6)
+,DOB date
+,job_title text
+,job_industry_category varchar(20)
+,wealth_segment varchar(20)
+,deceased_indicator varchar(1)
+,owns_car varchar(3)
+,address text
+,postcode int4
+,state varchar(20)
+,country varchar(20)
+,property_valuation int4
+);
+
+-- Вывести распределение (количество) клиентов по сферам деятельности, отсортировав результат по убыванию количества
+select c.job_industry_category, count(*)
+from customer c
+group by c.job_industry_category
+order by count(*) desc;
+ 
+-- Найти сумму транзакций за каждый месяц по сферам деятельности, отсортировав по месяцам и по сфере деятельности
+
+-- С учетом того, что все данные в таблице относятся к одному году, достаточно номера месяца без уточнения года
+select extract (month from t.transaction_date) as transaction_month,
+		coalesce(c.job_industry_category, 'n/a') as industry,
+		sum(t.list_price) as transactions_total
+-- left join, чтобы не потерять транзакции, по которым нет соответствующих клиентов в таблице customer
+from transaction t
+left join customer c on t.customer_id = c.customer_id 
+group by transaction_month, industry
+order by transaction_month, industry;
+
+-- Вывести количество онлайн-заказов для всех брендов в рамках подтвержденных заказов клиентов из сферы IT
+select t.brand, count(*)
+from transaction t
+join customer c on t.customer_id = c.customer_id 
+where t.online_order and t.order_status = 'Approved' and c.job_industry_category = 'IT'
+group by t.brand
+order by t.brand;
+
+-- Найти по всем клиентам сумму всех транзакций (list_price), максимум, минимум и количество транзакций,
+-- отсортировав результат по убыванию суммы транзакций и количества клиентов 
+-- (уточнено в Пачке – количества транзакций, а не клиентов). 
+-- Выполните двумя способами: используя только group by и используя только оконные функции.
+-- Сравните результат
+
+-- 1) способ используя только group by
+select t.customer_id, 
+		coalesce(c.first_name, '') as first_name1,
+		coalesce(c.last_name, '') as last_name1,
+		sum(t.list_price) as total_amount,
+		max(t.list_price) as max_amount,
+		min(t.list_price) as min_amount,
+		count(*) as transactions_count
+from transaction t
+left join customer c on t.customer_id = c.customer_id 
+group by t.customer_id, first_name1, last_name1
+order by total_amount desc, transactions_count desc;
+
+-- 2) способ используя только оконные функции
+select distinct t.customer_id,
+		coalesce(c.first_name, '') as first_name1,
+		coalesce(c.last_name, '') as last_name1,
+		sum(t.list_price) over(partition by t.customer_id) as total_amount,
+		max(t.list_price) over(partition by t.customer_id) as max_amount,
+		min(t.list_price) over(partition by t.customer_id) as min_amount,
+		count(*) over(partition by t.customer_id) as transactions_count
+from transaction t
+left join customer c on t.customer_id = c.customer_id
+order by total_amount desc, transactions_count desc;
+
+-- Результат, полученный двумя способами, совпадает!
+
+-- Найти имена и фамилии клиентов с минимальной/максимальной суммой транзакций за весь период
+-- (сумма транзакций не может быть null).
+-- Напишите отдельные запросы для минимальной и максимальной суммы
+
+-- Для максимальной суммы:
+with transaction_sums as (select t.customer_id, sum(t.list_price) as transaction_amount
+		from transaction t
+		group by t.customer_id
+		)
+select distinct c.customer_id, c.first_name, c.last_name
+from customer c 
+join transaction_sums ts on c.customer_id = ts.customer_id 
+where ts.transaction_amount = (select max(ts.transaction_amount) from transaction_sums ts);
+
+-- Для минимальной суммы:
+-- Поскольку используется inner join, сумма транзакций не будет null
+with transaction_sums as (select t.customer_id, sum(t.list_price) as transaction_amount
+		from transaction t
+		group by t.customer_id
+		)
+select distinct c.customer_id, c.first_name, c.last_name, ts.transaction_amount
+from customer c 
+join transaction_sums ts on c.customer_id = ts.customer_id 
+where ts.transaction_amount = (select min(ts.transaction_amount) from transaction_sums ts);
+
+-- Вывести только самые первые транзакции клиентов. Решить с помощью оконных функций
+with transactions1 as (select *, 
+	first_value(t.transaction_date) over (partition by t.customer_id order by t.transaction_date) as first_transaction_date
+	from transaction t
+	),
+-- если в первый день >1 транзакции, то в качестве первой выберем транзакцию с наименьшим номером транзакции	
+	transactions2 as (select *,
+	min(tp.transaction_id) over (partition by tp.customer_id) as min_transaction_id
+	from transactions1 tp
+	where tp.transaction_date = tp.first_transaction_date
+	)
+select *
+from transactions2 tpp
+where tpp.transaction_id = tpp.min_transaction_id
+order by tpp.customer_id
+
+
+
+-- Вывести имена, фамилии и профессии клиентов,
+-- между транзакциями которых был максимальный интервал (интервал вычисляется в днях)
+with transaction1 as (select t.transaction_id, t.customer_id, t.transaction_date,
+	lag(t.transaction_date) over (partition by t.customer_id order by t.transaction_date) as previous_date
+	from transaction t
+	),
+	transaction2 as (select tt.transaction_id, tt.customer_id, tt.transaction_date,
+	tt.transaction_date - coalesce(tt.previous_date, tt.transaction_date) as date_difference
+	from transaction1 tt
+	)
+select distinct ttt.customer_id, 
+		coalesce(c.first_name, '') as first_name,
+		coalesce(c.last_name, '') as last_name,
+		coalesce(c.job_title, '') as job_title 
+		--, ttt.date_difference
+from transaction2 ttt
+left join customer c on ttt.customer_id = c.customer_id 
+where ttt.date_difference = (select max(ttt.date_difference) from transaction2 ttt)
